@@ -9,6 +9,10 @@ Pulse - relatively short eruption (generally <1 week) that is considered to be c
 Event - generally longer eruption that can include breaks in activity of 90 days or less.
 
 Files:<br>
+event_duration_CPH.py - Cox Proportional-Hazards model for event durations.<br>
+
+pulse_duration_CPH.py - Cox Proportional-Hazards model for pulse durations.<br>
+
 event_duration_RSF.py - Random survival forest model for event durations.<br>
 
 pulse_duration_RSF.py - Random survival forest model for pulse durations.<br>
