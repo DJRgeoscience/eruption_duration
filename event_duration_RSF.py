@@ -21,7 +21,7 @@ import seaborn as sns
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
-df = pd.read_csv( 'input/pulse_durations.csv' )
+df = pd.read_csv( 'input/event_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
 # plot correlation matrix
@@ -35,7 +35,7 @@ ax.set_facecolor('w')
 plt.show()
 
 # remove highly correlated (r >= 0.7) features
-remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
+remove = [ 'meanslope' ]
 df.drop( columns=remove, inplace=True )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -147,7 +147,7 @@ plt.axhline( 0, color='k', linestyle='--', lw=0.8, zorder=0 )
 plt.show()
 
 # Remove features that negatively affect the model
-remove = [ 'complex', 'felsic', 'eruptionssince1960', 'stratovolcano', 'volume' ]
+remove = [ 'mafic', 'shield', 'continental', 'complex', 'summit_crater', 'intraplate', 'ellip', 'volume', 'stratovolcano', 'repose', 'ctcrust1' ]
 df.drop( columns=remove, inplace=True )
 
 
@@ -208,5 +208,6 @@ rsf = RandomSurvivalForest(n_estimators=1000,
                                    min_samples_leaf=best['min_samples_leaf'],
                                    max_features='sqrt',
                                    n_jobs=-1)
+
 # Train model on entire dataset
 rsf.fit(Xt, y)
