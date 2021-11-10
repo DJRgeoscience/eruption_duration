@@ -9,7 +9,7 @@
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 from sksurv.ensemble import RandomSurvivalForest
-from sklearn.model_selection import KFold, GridSearchCV
+from sklearn.model_selection import KFold, cross_val_score, GridSearchCV
 from eli5.sklearn import PermutationImportance
 import pandas as pd
 import numpy as np
@@ -176,22 +176,16 @@ random_states = [ 20,21,22,23,24 ]
 # Cross validation
 results = []
 for seed in random_states:
-    kf = KFold(n_splits=5,shuffle=True,random_state=seed)
-    kf.get_n_splits(y)
-    for train_index, test_index in kf.split(y):
-        print(  '{0} of {1}'.format(len(results)+1, 5*len(random_states)) )
-
-        X_train, X_test = Xt[train_index], Xt[test_index]
-        y_train, y_test = y[train_index], y[test_index]
-
-        rsf = RandomSurvivalForest(n_estimators=1000,
-                                   min_samples_split=best['min_samples_split'],
-                                   min_samples_leaf=best['min_samples_leaf'],
-                                   max_features='sqrt',
-                                   n_jobs=-1,
-                                   random_state=seed+1)
-        rsf.fit(X_train, y_train)
-        results.append(rsf.score(X_test, y_test)  )
+    print(  '{0} of {1}'.format(len(results)+1, len(random_states)) )
+    kf = KFold(5, shuffle=True, random_state=seed)
+    model = RandomSurvivalForest(n_estimators=1000,
+                                 min_samples_split=best['min_samples_split'],
+                                 min_samples_leaf=best['min_samples_leaf'],
+                                 max_features='sqrt',
+                                 n_jobs=-1,
+                                 random_state=seed+1)
+    result = cross_val_score(model, Xt, y, cv=kf)
+    results.append( result.tolist() )
 
 # Print results
 print( 'Average concordance index ({0} repeats of 5-fold cross validation): {1}'.format( len(random_states), round(np.mean(results),2) ) )
