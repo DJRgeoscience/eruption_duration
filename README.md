@@ -8,13 +8,27 @@ Two types of eruptions are considered: pulses and events.<br>
 Pulse - relatively short eruption (generally <1 week) that is considered to be continuous or semi-continuous.<br>
 Event - generally longer eruption that can include breaks in activity of 90 days or less.
 
-Files:<br>
-event_duration_CPH.py - Cox Proportional-Hazards model for event durations.<br>
+## Files
 
-pulse_duration_CPH.py - Cox Proportional-Hazards model for pulse durations.<br>
-
-event_duration_RSF.py - Random survival forest model for event durations.<br>
-
-pulse_duration_RSF.py - Random survival forest model for pulse durations.<br>
-
+### Web scraping
 scrape_gvp.py - Web scraping tool to get Weekly Reports from the GVP. Uses Selenium and Google Chrome.<br>
+
+### Cox Proportional-Hazards models
+event_duration_CPH.py<br>
+pulse_duration_CPH.py<br>
+
+### Cox Proportional-Hazards models with ridge penalty
+event_duration_CPH-ridge.py<br>
+pulse_duration_CPH-ridge.py<br>
+
+### Cox Proportional-Hazards models with lasso penalty
+event_duration_CPH-ridge.py<br>
+pulse_duration_CPH-ridge.py<br>
+
+### Cox Proportional-Hazards models with elastic net penalty
+event_duration_CPH-ridge.py<br>
+pulse_duration_CPH-ridge.py<br>
+
+### Random Survival Forest models
+event_duration_RSF.py<br>
+pulse_duration_RSF.py<br>
