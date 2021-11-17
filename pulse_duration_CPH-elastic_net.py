@@ -98,7 +98,7 @@ estimated_alphas = 10. ** np.linspace(-3, 0, 50)
 
 cv = KFold(n_splits=5, shuffle=True, random_state=seed)
 gcv = GridSearchCV(
-                    make_pipeline(StandardScaler(), CoxnetSurvivalAnalysis()),
+                    make_pipeline(StandardScaler(), CoxnetSurvivalAnalysis(l1_ratio=0.5)),
                     param_grid={"coxnetsurvivalanalysis__alphas": [[a] for a in estimated_alphas]},
                     cv=cv,
                     error_score=0.5,

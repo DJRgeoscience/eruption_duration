@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ##########################################################################################################################
-# Event - Cox Proportional Harazards Model with Ridge Penalty
+# Event - Cox Proportional Harazards Model with Lasso Penalty
 ##########################################################################################################################
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -76,8 +76,8 @@ Xt.drop( columns=['duration','end'], inplace=True )
 #%% Visualize penalty effect on coefficients
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-alphas = 10. ** np.linspace(-4, 0, 14)
-cox_elastic_net = CoxnetSurvivalAnalysis(l1_ratio=0.5, alphas=alphas, normalize=True)
+alphas = 10. ** np.linspace(-5, 0, 10)
+cox_elastic_net = CoxnetSurvivalAnalysis(l1_ratio=1, alphas=alphas, normalize=True)
 
 cox_elastic_net.fit(Xt, y)
 
@@ -98,7 +98,7 @@ estimated_alphas = 10. ** np.linspace(-3, 0, 50)
 
 cv = KFold(n_splits=5, shuffle=True, random_state=seed)
 gcv = GridSearchCV(
-                    make_pipeline(StandardScaler(), CoxnetSurvivalAnalysis(l1_ratio=0.5)),
+                    make_pipeline(StandardScaler(), CoxnetSurvivalAnalysis(l1_ratio=1)),
                     param_grid={"coxnetsurvivalanalysis__alphas": [[a] for a in estimated_alphas]},
                     cv=cv,
                     error_score=0.5,

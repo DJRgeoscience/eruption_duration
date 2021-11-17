@@ -22,12 +22,12 @@ event_duration_CPH-ridge.py<br>
 pulse_duration_CPH-ridge.py<br>
 
 ### Cox Proportional-Hazards models with lasso penalty
-event_duration_CPH-ridge.py<br>
-pulse_duration_CPH-ridge.py<br>
+event_duration_CPH-lasso.py<br>
+pulse_duration_CPH-lasso.py<br>
 
 ### Cox Proportional-Hazards models with elastic net penalty
-event_duration_CPH-ridge.py<br>
-pulse_duration_CPH-ridge.py<br>
+event_duration_CPH-elastic_net.py<br>
+pulse_duration_CPH-elastic_net.py<br>
 
 ### Random Survival Forest models
 event_duration_RSF.py<br>
