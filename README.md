@@ -32,3 +32,7 @@ pulse_duration_CPH-elastic_net.py<br>
 ### Random Survival Forest models
 event_duration_RSF.py<br>
 pulse_duration_RSF.py<br>
+
+### Survival analysis with neural networks and Cox regression (Cox-Time) - in progress
+event_duration_CoxTime.py<br>
+pulse_duration_CoxTime.py<br>
