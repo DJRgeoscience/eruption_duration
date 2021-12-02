@@ -29,6 +29,14 @@ pulse_duration_CPH-lasso.py<br>
 event_duration_CPH-elastic_net.py<br>
 pulse_duration_CPH-elastic_net.py<br>
 
+### Gradient boosted models using Cox's partial likelihood
+event_duration_GB.py<br>
+pulse_duration_GB.py<br>
+
+### Componentwise gradient boosted models using Cox's partial likelihood
+event_duration_CGB.py<br>
+pulse_duration_CGB.py<br>
+
 ### Random Survival Forest models
 event_duration_RSF.py<br>
 pulse_duration_RSF.py<br>

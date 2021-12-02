@@ -139,7 +139,7 @@ for random_state in range(5):
     kf.get_n_splits(df)
     
     for train_index, test_index in kf.split(df):
-        print('{} of 25'.format(count))
+        print(f'{count} of 25')
         df_train, df_test = df.iloc[train_index], df.iloc[test_index]
         x_train = x_mapper.fit_transform(df_train).astype('float32')
         x_val = x_mapper.transform(df_val).astype('float32')
