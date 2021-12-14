@@ -9,13 +9,15 @@
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 from sksurv.linear_model import CoxnetSurvivalAnalysis
+from sksurv.metrics import integrated_brier_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import KFold, GridSearchCV
+from sklearn.model_selection import KFold, GridSearchCV, RepeatedKFold, cross_val_score
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import shap
 
 def plot_coefficients(coefs, n_highlight):
     _, ax = plt.subplots(figsize=(9, 6))
@@ -47,6 +49,9 @@ def plot_coefficients(coefs, n_highlight):
 df = pd.read_csv( 'input/pulse_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
+# convert duration from days to seconds
+df.duration *= 24*60*60
+
 # plot correlation matrix
 CM = df.corr()
 mask = np.triu( np.ones_like( CM, dtype=bool ) )
@@ -71,6 +76,7 @@ d.end = d.end == 1
 y = d.to_records(index=False)
 Xt = df.copy()
 Xt.drop( columns=['duration','end'], inplace=True )
+feature_names = Xt.columns.tolist()
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Visualize penalty effect on coefficients
@@ -90,7 +96,7 @@ coefficients_elastic_net = pd.DataFrame(
 plot_coefficients(coefficients_elastic_net, n_highlight=5)
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Train final model
+#%% Optimization
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 seed = 1
 
@@ -121,20 +127,82 @@ ax.axvline(gcv.best_params_["coxnetsurvivalanalysis__alphas"][0], c="C1")
 ax.axhline(0.5, color="grey", linestyle="--")
 ax.grid(True)
 
-print( 'Results of Penalized Cox Model (elastic net) for events.' )
-print( 'Average concordance index (5 repeats of 5-fold cross validation):', round(max(mean),2) )
-print('Standard deviation:', round( std[ mean[mean==max(mean)].index[0] ], 2 ) )
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Cross validation, concordance index
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+# Initialize random number generator
+seed = 1
+
+kf = RepeatedKFold(n_splits=5, n_repeats=5, random_state=seed)
+
+model = CoxnetSurvivalAnalysis(l1_ratio=1,n_alphas=1,alphas=gcv.best_params_["coxnetsurvivalanalysis__alphas"],fit_baseline_model=True)
+results = cross_val_score(model, Xt, y, cv=kf)
+
+# Print results
+print( 'Average concordance index for ({0} repeats of 5-fold cross validation): {1}'.format( 5, round(results.mean(),4) ) )
+print( 'Standard deviation: {}'.format( round(results.std(ddof=1),4) ) )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Visalize final coefficients
+#%% Cross validation, integrated brier score
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+random_states = [11,12,13,14,15]
+results = []
+model = CoxnetSurvivalAnalysis(l1_ratio=1,n_alphas=1,alphas=gcv.best_params_["coxnetsurvivalanalysis__alphas"],fit_baseline_model=True)
+Xt = Xt.values
+
+for seed in random_states:
+    kf = KFold(n_splits=5,shuffle=True,random_state=seed)
+    kf.get_n_splits(y)
+    for train_index, test_index in kf.split(y):
+        print( '{0} of {1}'.format(len(results)+1, 5*len(random_states)) )
+        
+        X_train, X_test = Xt[train_index], Xt[test_index]
+        y_train, y_test = y[train_index], y[test_index]
+    
+        model.fit(X_train, y_train)
+        
+        #filter test dataset so we only consider event times within the range given by the training datasets
+        mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
+        X_test = X_test[mask]
+        y_test = y_test[mask]
+        
+        survs = model.predict_survival_function(X_test)
+        times = np.linspace( min([time[1] for time in y_test]), max([time[1] for time in y_test])*.999, 100 )
+        preds = np.asarray( [ [sf(t) for t in times] for sf in survs ] )
+        score = integrated_brier_score(y_train, y_test, preds, times)
+        
+        results.append( score )
+
+# Print results
+print( 'Average Brier score for ({0} repeats of 5-fold cross validation): {1}'.format( len(random_states), round(np.mean(results),4) ) )
+print( 'Standard deviation: {}'.format( round(np.std(results,ddof=1),4) ) )
+
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Train final model
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+model = CoxnetSurvivalAnalysis(l1_ratio=1,n_alphas=1,alphas=gcv.best_params_["coxnetsurvivalanalysis__alphas"],fit_baseline_model=True)
+model.fit(Xt,y)
+
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Calculate shap values
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+explainer = shap.Explainer(model.predict, Xt, feature_names=feature_names)
+shaps = explainer(Xt)
+shap.summary_plot(shaps, Xt)
+
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Alternative method for evaluating features
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 best_model = gcv.best_estimator_.named_steps["coxnetsurvivalanalysis"]
 
 best_coefs = pd.DataFrame(
                             best_model.coef_,
-                            index=Xt.columns,
+                            index=feature_names,
                             columns=["coefficient"]
                          )
 

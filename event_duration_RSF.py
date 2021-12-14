@@ -9,12 +9,14 @@
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 from sksurv.ensemble import RandomSurvivalForest
-from sklearn.model_selection import KFold, cross_val_score, GridSearchCV
+from sksurv.metrics import integrated_brier_score
+from sklearn.model_selection import KFold, GridSearchCV
 from eli5.sklearn import PermutationImportance
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
+import shap
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Remove correlated features
@@ -38,10 +40,6 @@ plt.show()
 remove = [ 'meanslope' ]
 df.drop( columns=remove, inplace=True )
 
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Initial optimization
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 # Prepare data
 d = df.loc[:,['end', 'duration']]
 d.end = d.end == 1
@@ -50,6 +48,10 @@ Xt = df.copy()
 Xt.drop( columns=['duration','end'], inplace=True )
 feature_names = Xt.columns.tolist()
 Xt = Xt.values
+
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Initial optimization
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # Initialize random number generator
 seed = 0
@@ -158,7 +160,7 @@ df.drop( columns=remove, inplace=True )
 # Skipping this for now. Initial optimization indicated that model is not very sensitive to fine hyperparameter tuning.
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Cross validation
+#%% Cross validation, concordance index and brier score
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # Prepare data
@@ -174,23 +176,47 @@ Xt = Xt.values
 random_states = [ 20,21,22,23,24 ]
 
 # Cross validation
-results = []
+results_c = [] #concordance index
+results_b = [] #brier score
 for seed in random_states:
-    print(  '{0} of {1}'.format(len(results)+1, len(random_states)) )
-    kf = KFold(5, shuffle=True, random_state=seed)
+    
     model = RandomSurvivalForest(n_estimators=1000,
                                  min_samples_split=best['min_samples_split'],
                                  min_samples_leaf=best['min_samples_leaf'],
                                  max_features='sqrt',
                                  n_jobs=-1,
                                  random_state=seed+1)
-    result = cross_val_score(model, Xt, y, cv=kf)
-    results.append( result.tolist() )
+    
+    kf = KFold(5, shuffle=True, random_state=seed)
+    kf.get_n_splits(y)
+    
+    for train_index, test_index in kf.split(y):
+        print( '{0} of {1}'.format(len(results_c)+1, 5*len(random_states)) )
+        
+        X_train, X_test = Xt[train_index], Xt[test_index]
+        y_train, y_test = y[train_index], y[test_index]
+    
+        model.fit(X_train, y_train)
+        
+        results_c.append(model.score(X_test,y_test))
+        
+        #filter test dataset so we only consider event times within the range given by the training datasets for brier score
+        mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
+        X_test = X_test[mask]
+        y_test = y_test[mask]
+        
+        survs = model.predict_survival_function(X_test)
+        times = np.linspace( min([time[1] for time in y_test]), max([time[1] for time in y_test])*.999, 100 )
+        preds = np.asarray( [ [sf(t) for t in times] for sf in survs ] )
+        score = integrated_brier_score(y_train, y_test, preds, times)
+        
+        results_b.append( score )
 
 # Print results
-print( 'Average concordance index ({0} repeats of 5-fold cross validation): {1}'.format( len(random_states), round(np.mean(results),2) ) )
-print( 'Standard deviation: {}'.format( round(np.std(results,ddof=1),2) ) )
-
+print( 'Average concordance index ({0} repeats of 5-fold cross validation): {1}'.format( len(random_states), round(np.mean(results_c),4) ) )
+print( 'Standard deviation: {}'.format( round(np.std(results_c,ddof=1),4) ) )
+print( 'Average Brier score for ({0} repeats of 5-fold cross validation): {1}'.format( len(random_states), round(np.mean(results_b),4) ) )
+print( 'Standard deviation: {}'.format( round(np.std(results_b,ddof=1),4) ) )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Train final model
@@ -202,6 +228,13 @@ rsf = RandomSurvivalForest(n_estimators=1000,
                                    min_samples_leaf=best['min_samples_leaf'],
                                    max_features='sqrt',
                                    n_jobs=-1)
-
 # Train model on entire dataset
 rsf.fit(Xt, y)
+
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Calculate shap values
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+explainer = shap.Explainer(rsf.predict, Xt, feature_names=feature_names)
+shaps = explainer(Xt)
+shap.summary_plot(shaps, Xt)
