@@ -154,22 +154,22 @@ for seed in random_states:
     kf.get_n_splits(y)
     for train_index, test_index in kf.split(y):
         print( '{0} of {1}'.format(len(results)+1, 5*len(random_states)) )
-        
+
         X_train, X_test = Xt[train_index], Xt[test_index]
         y_train, y_test = y[train_index], y[test_index]
-    
+
         model.fit(X_train, y_train)
-        
+
         #filter test dataset so we only consider event times within the range given by the training datasets
         mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
         X_test = X_test[mask]
         y_test = y_test[mask]
-        
+
         survs = model.predict_survival_function(X_test)
-        times = np.linspace( min([time[1] for time in y_test]), max([time[1] for time in y_test])*.999, 100 )
+        times = np.linspace( np.percentile([time[1] for time in y_test], 25), np.percentile([time[1] for time in y_test], 75), 10 )
         preds = np.asarray( [ [sf(t) for t in times] for sf in survs ] )
         score = integrated_brier_score(y_train, y_test, preds, times)
-        
+
         results.append( score )
 
 # Print results

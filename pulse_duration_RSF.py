@@ -160,7 +160,34 @@ df.drop( columns=remove, inplace=True )
 #%% Final optimization
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-# Skipping this for now. Initial optimization indicated that model is not very sensitive to fine hyperparameter tuning.
+# Initialize random number generator
+seed = 0
+
+# Make a grid
+min_samples_split = [5,10,15,20]
+min_samples_leaf = [4,5,6]
+n_estimators = [750,1000,1250]
+param_grid = dict( min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf, n_estimators=n_estimators )
+
+# Grid search
+grid = GridSearchCV(estimator=RandomSurvivalForest( max_features='sqrt',
+                                                    n_jobs=-1,
+                                                    random_state=1 ),
+                    param_grid=param_grid,
+                    cv=KFold(random_state=seed, shuffle=True),
+                    verbose=10)
+grid_results = grid.fit( Xt, y )
+
+# Assess results
+means = grid_results.cv_results_['mean_test_score']
+stds = grid_results.cv_results_['std_test_score']
+params = grid_results.cv_results_['params']
+best = grid_results.best_params_
+
+for mean, stdev, param in zip(means, stds, params):
+    print( '{0} ({1}) with: {2}'.format(round(mean,3), round(stdev,3), param) )
+
+print( 'Best: {0}, using {1}'.format(grid_results.best_score_, best) )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Cross validation, concordance index and brier score
@@ -182,37 +209,37 @@ random_states = [ 20,21,22,23,24 ]
 results_c = [] #concordance index
 results_b = [] #brier score
 for seed in random_states:
-    
-    model = RandomSurvivalForest(n_estimators=1000,
+
+    model = RandomSurvivalForest(n_estimators=best['n_estimators'],
                                  min_samples_split=best['min_samples_split'],
                                  min_samples_leaf=best['min_samples_leaf'],
                                  max_features='sqrt',
                                  n_jobs=-1,
                                  random_state=seed+1)
-    
+
     kf = KFold(5, shuffle=True, random_state=seed)
     kf.get_n_splits(y)
-    
+
     for train_index, test_index in kf.split(y):
         print( '{0} of {1}'.format(len(results_c)+1, 5*len(random_states)) )
-        
+
         X_train, X_test = Xt[train_index], Xt[test_index]
         y_train, y_test = y[train_index], y[test_index]
-    
+
         model.fit(X_train, y_train)
-        
+
         results_c.append(model.score(X_test,y_test))
-        
+
         #filter test dataset so we only consider event times within the range given by the training datasets for brier score
         mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
         X_test = X_test[mask]
         y_test = y_test[mask]
-        
+
         survs = model.predict_survival_function(X_test)
-        times = np.linspace( min([time[1] for time in y_test]), max([time[1] for time in y_test])*.999, 100 )
+        times = np.linspace( np.percentile([time[1] for time in y_test], 25), np.percentile([time[1] for time in y_test], 75), 10 )
         preds = np.asarray( [ [sf(t) for t in times] for sf in survs ] )
         score = integrated_brier_score(y_train, y_test, preds, times)
-        
+
         results_b.append( score )
 
 # Print results
@@ -227,10 +254,10 @@ print( 'Standard deviation: {}'.format( round(np.std(results_b,ddof=1),4) ) )
 
 # Set up model
 rsf = RandomSurvivalForest(n_estimators=1000,
-                                   min_samples_split=best['min_samples_split'],
-                                   min_samples_leaf=best['min_samples_leaf'],
-                                   max_features='sqrt',
-                                   n_jobs=-1)
+                            min_samples_split=best['min_samples_split'],
+                            min_samples_leaf=best['min_samples_leaf'],
+                            max_features='sqrt',
+                            n_jobs=-1)
 # Train model on entire dataset
 rsf.fit(Xt, y)
 
@@ -241,4 +268,3 @@ rsf.fit(Xt, y)
 explainer = shap.Explainer(rsf.predict, Xt, feature_names=feature_names)
 shaps = explainer(Xt)
 shap.summary_plot(shaps, Xt)
-

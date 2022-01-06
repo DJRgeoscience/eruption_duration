@@ -10,8 +10,8 @@
 
 from sksurv.ensemble import GradientBoostingSurvivalAnalysis
 from sksurv.metrics import integrated_brier_score
-from sklearn.model_selection import train_test_split
-from sklearn.model_selection import KFold
+from sklearn.model_selection import train_test_split, KFold, GridSearchCV
+from eli5.sklearn import PermutationImportance
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -54,6 +54,7 @@ y = d.to_records(index=False)
 Xt = df.copy()
 Xt.drop( columns=['duration','end'], inplace=True )
 feature_names = Xt.columns.tolist()
+Xt = Xt.values
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Visualize n_estimators
@@ -65,24 +66,125 @@ X_train, X_test, y_train, y_test = train_test_split(Xt, y, test_size=0.2, random
 scores_cph_tree = {}
 
 model = GradientBoostingSurvivalAnalysis(
-                                            learning_rate=1.0, max_depth=1, random_state=0
+                                            learning_rate=0.1, max_depth=1, random_state=0
                                         )
-for n_estimators in range(5, 205, 5):
+
+for n_estimators in range(10, 1010, 10):
     model.set_params(n_estimators=n_estimators)
     model.fit(X_train, y_train)
     scores_cph_tree[n_estimators] = model.score(X_test, y_test)
 
-x, y = zip(*scores_cph_tree.items())
-plt.plot(x, y)
+x_plot, y_plot = zip(*scores_cph_tree.items())
+plt.plot(x_plot, y_plot)
 plt.xlabel('n_estimator')
 plt.ylabel('Concordance Index')
 plt.show()
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Feature selection
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+# Initialize random number generator
+seed = 10
+
+# Create a list that holds results of feature selection
+results = []
+
+# Set up 5-fold cross validation
+kf = KFold(n_splits=5,shuffle=True,random_state=seed)
+kf.get_n_splits(y)
+
+# Loop through each fold
+count = 0
+for train_index, test_index in kf.split(y):
+    count += 1
+    print(  '{0} of {1}'.format(count, 5) )
+    X_train, X_test = Xt[train_index], Xt[test_index]
+    y_train, y_test = y[train_index], y[test_index]
+
+    # This is the gradient boosting model
+    model = GradientBoostingSurvivalAnalysis(
+                                                learning_rate=0.1, max_depth=1, random_state=1, n_estimators=800
+                                            )
+    model.fit(X_train, y_train)
+
+    # Use permutation importance to assess features
+    perm = PermutationImportance(model, n_iter=20, random_state=seed+2)
+    perm.fit(X_test, y_test)
+
+    # Save results
+    result = [ [x[0], x[1], x[2]] for x in zip(perm.feature_importances_, perm.feature_importances_std_, feature_names) ]
+    result.sort(key=lambda x: x[0], reverse=True)
+    results.append(result)
+
+# Organize results
+perm = [[],[],[]]
+labels = []
+avg = []
+for feature in feature_names:
+    perm[0].append( feature )
+    perm[1].append( [] )
+    perm[2].append( [] )
+    for result in results:
+        rT = list(map(list, zip(*result)))
+        perm[1][-1].append( rT[0][ rT[2].index(feature) ] )
+        perm[2][-1].append( rT[1][ rT[2].index(feature) ] )
+perm[1] = [ np.mean(x) for x in perm[1] ]
+for i in range(len(perm[1])):
+    m = max( perm[1] )
+    avg.append( m )
+    labels.append( perm[0][ perm[1].index(m) ] )
+    perm[0].pop( perm[1].index(m) )
+    perm[1].pop( perm[1].index(m) )
+
+# Plot results
+plt.scatter( range( len( avg ) ), avg, zorder=10 )
+plt.xticks( range(len( avg ) ), labels, rotation = 60, ha='right', rotation_mode="anchor" )
+plt.axhline( 0, color='k', linestyle='--', lw=0.8, zorder=0 )
+plt.show()
+
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Remove features that negatively affect the model
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+remove = [ 'complex', 'mafic', 'eruptionssince1960', 'volume' ]
+df.drop( columns=remove, inplace=True )
+Xt = df.copy()
+Xt.drop( columns=['duration','end'], inplace=True )
+feature_names = Xt.columns.tolist()
+Xt = Xt.values
+
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Optimization
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-# Need to do
+# Initialize random number generator
+seed = 1
+
+# Make a small grid
+learning_rate = np.logspace(-2,-1,5)
+n_estimators  = np.arange(200,1400,300)
+max_depth  = np.arange(1,3)
+min_samples_split = np.arange(2,4)
+min_samples_leaf  = np.arange(1,4)
+dropout_rate = np.array([0,0.1,0.2])
+
+param_grid = dict( learning_rate=learning_rate, n_estimators=n_estimators, max_depth=max_depth, min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf, dropout_rate=dropout_rate )
+
+# Grid search
+grid = GridSearchCV(estimator=GradientBoostingSurvivalAnalysis( random_state=seed ),
+                    param_grid=param_grid,
+                    cv=KFold(random_state=seed+1, shuffle=True),
+                    verbose=10)
+grid_results = grid.fit( Xt, y )
+
+# Assess results
+means = grid_results.cv_results_['mean_test_score']
+stds = grid_results.cv_results_['std_test_score']
+params = grid_results.cv_results_['params']
+best = grid_results.best_params_
+
+print( 'Best: {0}, using {1}'.format(grid_results.best_score_, best) )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Cross validation, concordance index and brier score
@@ -90,7 +192,6 @@ plt.show()
 
 # Initialize random number generator, once for each repeat of 5-fold cross validation
 random_states = [ 20,21,22,23,24 ]
-Xt = Xt.values
 
 # Cross validation
 results_c = [] #concordance index
@@ -99,9 +200,12 @@ results_b = [] #brier score
 for seed in random_states:
     
     model = GradientBoostingSurvivalAnalysis(
-                                                learning_rate=1.0, max_depth=1, random_state=seed+1, n_estimators=100
+                                                learning_rate=best['learning_rate'], max_depth=best['max_depth'],
+                                                n_estimators=best['n_estimators'], min_samples_split=best['min_samples_split'],
+                                                min_samples_leaf=best['min_samples_leaf'], dropout_rate=best['dropout_rate'],
+                                                random_state=seed
                                             )
-
+    
     kf = KFold(5, shuffle=True, random_state=seed)
     kf.get_n_splits(y)
     
@@ -121,7 +225,7 @@ for seed in random_states:
         y_test = y_test[mask]
         
         survs = model.predict_survival_function(X_test)
-        times = np.linspace( min([time[1] for time in y_test]), max([time[1] for time in y_test])*.999, 100 )
+        times = np.linspace( np.percentile([time[1] for time in y_test], 25), np.percentile([time[1] for time in y_test], 75), 10 )
         preds = np.asarray( [ [sf(t) for t in times] for sf in survs ] )
         score = integrated_brier_score(y_train, y_test, preds, times)
         
@@ -136,12 +240,15 @@ print( 'Standard deviation: {}'.format( round(np.std(results_b,ddof=1),4) ) )
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Train final model
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+seed = 111
 
 # Set up model
 model = GradientBoostingSurvivalAnalysis(
-                                            learning_rate=1.0, max_depth=1, random_state=0, n_estimators=100
+                                            learning_rate=best['learning_rate'], max_depth=best['max_depth'],
+                                            n_estimators=best['n_estimators'], min_samples_split=best['min_samples_split'],
+                                            min_samples_leaf=best['min_samples_leaf'], dropout_rate=best['dropout_rate'],
+                                            random_state=seed
                                         )
-
 # Train model on entire dataset
 model.fit(Xt, y)
 
