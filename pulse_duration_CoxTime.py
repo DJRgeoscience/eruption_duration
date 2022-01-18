@@ -168,23 +168,23 @@ for bs in batch_size:
                     x_train = x_mapper.fit_transform(df_train).astype('float32')
                     x_val = x_mapper.transform(df_val).astype('float32')
                     x_test = x_mapper.transform(df_test).astype('float32')
-                    
+
                     labtrans = CoxTime.label_transform()
                     get_target = lambda df: (df['duration'].values, df['end'].values)
                     y_train = labtrans.fit_transform(*get_target(df_train))
                     y_val = labtrans.transform(*get_target(df_val))
                     durations_test, events_test = get_target(df_test)
                     val = tt.tuplefy(x_val, y_val)
-                    
+
                     val.shapes()
                     val.repeat(2).cat().shapes()
-                    
+
                     in_features = x_train.shape[1]
                     num_nodes = [32, 32]
                     batch_norm = True
                     dropout = dr
                     net = MLPVanillaCoxTime(in_features, num_nodes, batch_norm, dropout)
-                    
+
                     model = CoxTime(net, tt.optim.Adam, labtrans=labtrans)
                     batch_size = bs
 
@@ -196,7 +196,7 @@ for bs in batch_size:
                     log = model.fit(x_train, y_train, batch_size, epochs, callbacks, verbose,
                                     val_data=val.repeat(10).cat())
                     model.partial_log_likelihood(*val).mean()
-                
+
                     _ = model.compute_baseline_hazards()
                     surv = model.predict_surv_df(x_test)
 
@@ -213,7 +213,7 @@ for bs in batch_size:
                 print(np.mean(scores))
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Cox-time with 5 repeats of 5-fold cross-validation
+#%% 5 repeats of 5-fold cross-validation
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 results_ci = [] #record concordance index
@@ -222,10 +222,10 @@ results_b = [] #record brier score
 count = 1
 for random_state in range(5):
     _ = torch.manual_seed(random_state+20)
-    
+
     kf = KFold(n_splits=5,shuffle=True,random_state=random_state)
     kf.get_n_splits(df)
-    
+
     for train_index, test_index in kf.split(df):
         print(f'{count} of 25')
         df_train, df_test = df.iloc[train_index], df.iloc[test_index]
@@ -237,23 +237,23 @@ for random_state in range(5):
         x_train = x_mapper.fit_transform(df_train).astype('float32')
         x_val = x_mapper.transform(df_val).astype('float32')
         x_test = x_mapper.transform(df_test).astype('float32')
-        
+
         labtrans = CoxTime.label_transform()
         get_target = lambda df: (df['duration'].values, df['end'].values)
         y_train = labtrans.fit_transform(*get_target(df_train))
         y_val = labtrans.transform(*get_target(df_val))
         durations_test, events_test = get_target(df_test)
         val = tt.tuplefy(x_val, y_val)
-        
+
         val.shapes()
         val.repeat(2).cat().shapes()
-        
+
         in_features = x_train.shape[1]
         num_nodes = [32, 32]
         batch_norm = True
         dropout = best_dr
         net = MLPVanillaCoxTime(in_features, num_nodes, batch_norm, dropout)
-        
+
         model = CoxTime(net, tt.optim.Adam, labtrans=labtrans)
         batch_size = best_bs
 
@@ -265,7 +265,7 @@ for random_state in range(5):
         log = model.fit(x_train, y_train, batch_size, epochs, callbacks, verbose,
                         val_data=val.repeat(10).cat())
         model.partial_log_likelihood(*val).mean()
-    
+
         _ = model.compute_baseline_hazards()
         surv = model.predict_surv_df(x_test)
 
