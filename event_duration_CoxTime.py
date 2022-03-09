@@ -29,6 +29,9 @@ import seaborn as sns
 df = pd.read_csv( 'input/event_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
+# convert duration from days to seconds
+df.duration *= 24*60*60
+
 # plot correlation matrix
 CM = df.corr()
 mask = np.triu( np.ones_like( CM, dtype=bool ) )
@@ -44,7 +47,7 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'meanslope', 'rift', 'stratovolcano' ]
+remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
 df.drop( columns=remove, inplace=True )
 
 # Set random seeds
@@ -59,10 +62,8 @@ df_val = df_train.sample(frac=0.2)
 df_train = df_train.drop(df_val.index)
 
 # Standardize
-cols_standardize = [ 'vei', 'repose', 'ctcrust1', 'elevation', 'volume', 'eruptionssince1960', 'avgrepose',
-                   'h_bw', 'ellip']
-cols_leave = [ 'caldera', 'dome', 'shield', 'complex', 'lava_cone', 'compound', 'subduction', 'intraplate',
-             'continental', 'mafic', 'intermediate', 'felsic', 'summit_crater']
+cols_standardize = [ 'elevation', 'volume', 'eruptionssince1960', 'avgrepose', 'h_bw', 'ellip' ]
+cols_leave = ['explosive', 'continuous', 'stratovolcano', 'dome','complex','lava_cone','subduction', 'continental', 'mafic', 'intermediate', 'felsic', 'summit_crater' ]
 
 standardize = [([col], StandardScaler()) for col in cols_standardize]
 leave = [(col, None) for col in cols_leave]
@@ -71,14 +72,12 @@ x_mapper = DataFrameMapper(standardize + leave)
 x_train = x_mapper.fit_transform(df_train).astype('float32')
 x_val = x_mapper.transform(df_val).astype('float32')
 x_test = x_mapper.transform(df_test).astype('float32')
-
 labtrans = CoxTime.label_transform()
 get_target = lambda df: (df['duration'].values, df['end'].values)
 y_train = labtrans.fit_transform(*get_target(df_train))
 y_val = labtrans.transform(*get_target(df_val))
 durations_test, events_test = get_target(df_test)
 val = tt.tuplefy(x_val, y_val)
-
 val.shapes()
 val.repeat(2).cat().shapes()
 

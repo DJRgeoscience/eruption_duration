@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ##########################################################################################################################
-# Pulse - Cox Proportional Harazards Model with Lasso Penalty
+# Eruption - Cox Proportional Harazards Model with Ridge Penalty
 ##########################################################################################################################
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -46,11 +46,8 @@ def plot_coefficients(coefs, n_highlight):
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
-df = pd.read_csv( 'input/pulse_durations.csv' )
+df = pd.read_csv( 'input/eruption_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
-
-# convert duration from days to seconds
-df.duration *= 24*60*60
 
 # plot correlation matrix
 CM = df.corr()
@@ -67,7 +64,7 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
+remove = [ 'meanslope', 'rift', 'stratovolcano' ]
 df.drop( columns=remove, inplace=True )
 
 # Prepare variables
@@ -82,8 +79,8 @@ feature_names = Xt.columns.tolist()
 #%% Visualize penalty effect on coefficients
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-alphas = 10. ** np.linspace(-5, 0, 10)
-cox_elastic_net = CoxnetSurvivalAnalysis(l1_ratio=1, alphas=alphas, normalize=True)
+alphas = 10. ** np.linspace(-4, 0, 14)
+cox_elastic_net = CoxnetSurvivalAnalysis(l1_ratio=0.5, alphas=alphas, normalize=True)
 
 cox_elastic_net.fit(Xt, y)
 
@@ -104,7 +101,7 @@ estimated_alphas = 10. ** np.linspace(-3, 0, 50)
 
 cv = KFold(n_splits=5, shuffle=True, random_state=seed)
 gcv = GridSearchCV(
-                    make_pipeline(StandardScaler(), CoxnetSurvivalAnalysis(l1_ratio=1)),
+                    make_pipeline(StandardScaler(), CoxnetSurvivalAnalysis(l1_ratio=0.5)),
                     param_grid={"coxnetsurvivalanalysis__alphas": [[a] for a in estimated_alphas]},
                     cv=cv,
                     error_score=0.5,
@@ -136,7 +133,7 @@ seed = 1
 
 kf = RepeatedKFold(n_splits=5, n_repeats=5, random_state=seed)
 
-model = CoxnetSurvivalAnalysis(l1_ratio=1,n_alphas=1,alphas=gcv.best_params_["coxnetsurvivalanalysis__alphas"],fit_baseline_model=True)
+model = CoxnetSurvivalAnalysis(l1_ratio=0.5,n_alphas=1,alphas=gcv.best_params_["coxnetsurvivalanalysis__alphas"],fit_baseline_model=True)
 results = cross_val_score(model, Xt, y, cv=kf)
 
 # Print results
@@ -163,7 +160,7 @@ for seed in random_states:
 
         model.fit(X_train, y_train)
 
-        #filter test dataset so we only consider event times within the range given by the training datasets
+        #filter test dataset so we only consider eruption times within the range given by the training datasets
         mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
         X_test = X_test[mask]
         y_test = y_test[mask]

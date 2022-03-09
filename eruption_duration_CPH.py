@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ##########################################################################################################################
-# Event - Cox Proportional Harazards Model with Ridge Penalty
+# Eruption - Cox Proportional Harazards Model
 ##########################################################################################################################
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -10,47 +10,21 @@
 
 from sksurv.linear_model import CoxPHSurvivalAnalysis as CPHSA
 from sksurv.metrics import integrated_brier_score
-from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import KFold, RepeatedKFold, cross_val_score, GridSearchCV
+from sklearn.model_selection import KFold, RepeatedKFold, cross_val_score
+from lifelines import CoxPHFitter as CPHF
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 import shap
 
-def plot_coefficients(coefs, n_highlight):
-    _, ax = plt.subplots(figsize=(9, 6))
-    alphas = coefs.columns
-    for row in coefs.itertuples():
-        ax.semilogx(alphas, row[1:], ".-", label=row.Index)
-
-    alpha_min = alphas.min()
-    top_coefs = coefs.loc[:, alpha_min].map(abs).sort_values().tail(n_highlight)
-    for name in top_coefs.index:
-        coef = coefs.loc[name, alpha_min]
-        plt.text(
-            alpha_min, coef, name + "   ",
-            horizontalalignment="right",
-            verticalalignment="center"
-        )
-
-    ax.yaxis.set_label_position("right")
-    ax.yaxis.tick_right()
-    ax.grid(True)
-    ax.set_xlabel("alpha")
-    ax.set_ylabel("coefficient")
-
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Test for correlated features
+#%% Remove correlated features
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
-df = pd.read_csv( 'input/event_durations.csv' )
+df = pd.read_csv( 'input/eruption_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
-
-# convert duration from days to seconds
-df.duration *= 24*60*60
 
 # plot correlation matrix
 CM = df.corr()
@@ -62,83 +36,44 @@ ax.figure.axes[-1].yaxis.label.set_size(20)
 ax.set_facecolor('w')
 plt.show()
 
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Prepare data
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
+remove = [ 'meanslope', 'rift', 'stratovolcano' ]
 df.drop( columns=remove, inplace=True )
 
-# Prepare variables
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Feature selection
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+# Fit data
+cph = CPHF()
+cph.fit(df, 'duration',event_col='end')
+
+# Summarize results
+cph.print_summary()
+
+# Remove features with high p values (>=0.03)
+remove = [ 'repose', 'caldera', 'dome', 'shield', 'complex', 'compound', 'continental', 'ctcrust1', 'volume', 'eruptionssince1960', 'mafic', 'avgrepose', 'summit_crater' ]
+df.drop( columns=remove, inplace=True )
+
+# Prepare data for cross validation
 d = df.loc[:,['end', 'duration']]
 d.end = d.end == 1
 y = d.to_records(index=False)
 Xt = df.copy()
 Xt.drop( columns=['duration','end'], inplace=True )
 feature_names = Xt.columns.tolist()
-
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Visualize penalty effect on coefficients
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-alphas = 10. ** np.linspace(-4, 4, 50)
-coefficients = {}
-
-cph = CPHSA()
-for alpha in alphas:
-    cph.set_params(alpha=alpha)
-    cph.fit(Xt, y)
-    key = round(alpha, 5)
-    coefficients[key] = cph.coef_
-
-coefficients = (pd.DataFrame
-    .from_dict(coefficients)
-    .rename_axis(index="feature", columns="alpha")
-    .set_index(Xt.columns))
-
-plot_coefficients(coefficients, n_highlight=5)
-
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Optimize model
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-seed = 1
-
-alphas = 10. ** np.linspace(-5, 16, 100)
-cv = KFold(n_splits=5, shuffle=True, random_state=seed)
-gcv = GridSearchCV(
-                    make_pipeline(StandardScaler(), CPHSA()),
-                    param_grid={"coxphsurvivalanalysis__alpha": [a for a in alphas]},
-                    cv=cv,
-                    error_score=0.5,
-                    n_jobs=-1
-                  ).fit(Xt, y)
-
-cv_results = pd.DataFrame(gcv.cv_results_)
-
-mean = cv_results.mean_test_score.values
-std = cv_results.std_test_score.values
-
-fig, ax = plt.subplots(figsize=(9, 6))
-ax.plot(alphas, mean)
-ax.fill_between(alphas, mean - std, mean + std, alpha=.15)
-ax.set_xscale("log")
-ax.set_ylabel("concordance index")
-ax.set_xlabel("alpha")
-ax.axvline(gcv.best_params_["coxphsurvivalanalysis__alpha"], c="C1")
-ax.axhline(0.5, color="grey", linestyle="--")
-ax.grid(True)
+Xt = Xt.values
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Cross validation, concordance index
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # Initialize random number generator
-seed = 10
+seed = 1
 
 kf = RepeatedKFold(n_splits=5, n_repeats=5, random_state=seed)
 
-model = CPHSA(alpha=gcv.best_params_["coxphsurvivalanalysis__alpha"])
+model = CPHSA()
 results = cross_val_score(model, Xt, y, cv=kf)
 
 # Print results
@@ -151,8 +86,7 @@ print( 'Standard deviation: {}'.format( round(results.std(ddof=1),4) ) )
 
 random_states = [11,12,13,14,15]
 results = []
-model = CPHSA(alpha=gcv.best_params_["coxphsurvivalanalysis__alpha"])
-Xt = Xt.values
+model = CPHSA()
 
 for seed in random_states:
     kf = KFold(n_splits=5,shuffle=True,random_state=seed)
@@ -165,7 +99,7 @@ for seed in random_states:
 
         model.fit(X_train, y_train)
 
-        #filter test dataset so we only consider event times within the range given by the training datasets
+        #filter test dataset so we only consider eruption times within the range given by the training datasets
         mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
         X_test = X_test[mask]
         y_test = y_test[mask]
@@ -185,7 +119,7 @@ print( 'Standard deviation: {}'.format( round(np.std(results,ddof=1),4) ) )
 #%% Train final model
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-model = CPHSA(alpha=gcv.best_params_["coxphsurvivalanalysis__alpha"])
+model = CPHSA()
 model.fit(Xt,y)
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

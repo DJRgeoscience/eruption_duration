@@ -41,7 +41,7 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'meanslope', 'rift', 'stratovolcano' ]
+remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
 df.drop( columns=remove, inplace=True )
 
 # Prepare variables
@@ -66,7 +66,7 @@ model = cgb(
               learning_rate=0.1, random_state=0
            )
 
-for n_estimators in range(100, 1100, 100):
+for n_estimators in range(250, 4250, 250):
     model.set_params(n_estimators=n_estimators)
     model.fit(X_train, y_train)
     scores_cph_tree[n_estimators] = model.score(X_test, y_test)
@@ -101,7 +101,7 @@ for train_index, test_index in kf.split(y):
 
     # This is the gradient boosting model
     model = cgb(
-                learning_rate=0.1, random_state=1, n_estimators=1000
+                learning_rate=0.1, random_state=1, n_estimators=3500
                )
     model.fit(X_train, y_train)
 
@@ -141,10 +141,10 @@ plt.axhline( 0, color='k', linestyle='--', lw=0.8, zorder=0 )
 plt.show()
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Remove features that negatively affect the model
+#%% Remove features that negatively affect the model - skipped for now, no negative features
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-remove = [ 'eruptionssince1960' ]
+remove = [ '' ]
 df.drop( columns=remove, inplace=True )
 Xt = df.copy()
 Xt.drop( columns=['duration','end'], inplace=True )
@@ -159,8 +159,8 @@ Xt = Xt.values
 seed = 1
 
 # Make a small grid
-learning_rate = np.logspace(-2,0,10)
-n_estimators  = np.arange(100,900,200)
+learning_rate = np.logspace(-2,-1,5)
+n_estimators  = np.arange(2000,4500,500)
 dropout_rate = np.array([0,0.1,0.2])
 
 param_grid = dict( learning_rate=learning_rate, n_estimators=n_estimators, dropout_rate=dropout_rate )

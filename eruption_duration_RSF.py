@@ -1,16 +1,16 @@
 # -*- coding: utf-8 -*-
 
 ##########################################################################################################################
-# Pulse - Componentwise gradient boosted models using Cox's partial likelihood
+# Eruption - Random Survival Forests
 ##########################################################################################################################
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Import libraries
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-from sksurv.ensemble import ComponentwiseGradientBoostingSurvivalAnalysis as cgb
+from sksurv.ensemble import RandomSurvivalForest
 from sksurv.metrics import integrated_brier_score
-from sklearn.model_selection import train_test_split, KFold, GridSearchCV
+from sklearn.model_selection import KFold, GridSearchCV
 from eli5.sklearn import PermutationImportance
 import pandas as pd
 import numpy as np
@@ -19,11 +19,11 @@ import seaborn as sns
 import shap
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Test for correlated features
+#%% Remove correlated features
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
-df = pd.read_csv( 'input/pulse_durations.csv' )
+df = pd.read_csv( 'input/eruption_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
 # plot correlation matrix
@@ -36,15 +36,11 @@ ax.figure.axes[-1].yaxis.label.set_size(20)
 ax.set_facecolor('w')
 plt.show()
 
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Prepare data
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-# remove highly correlated (r >= ~0.7) features
-remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
+# remove highly correlated (r >= 0.7) features
+remove = [ 'meanslope' ]
 df.drop( columns=remove, inplace=True )
 
-# Prepare variables
+# Prepare data
 d = df.loc[:,['end', 'duration']]
 d.end = d.end == 1
 y = d.to_records(index=False)
@@ -54,28 +50,37 @@ feature_names = Xt.columns.tolist()
 Xt = Xt.values
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Visualize n_estimators
+#%% Initial optimization
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-seed = 5
 
-X_train, X_test, y_train, y_test = train_test_split(Xt, y, test_size=0.2, random_state=seed)
+# Initialize random number generator
+seed = 0
 
-scores_cph_tree = {}
+# Make a small grid
+min_samples_split = [5,10,20]
+min_samples_leaf = [2,3,4,5]
+param_grid = dict( min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf )
 
-model = cgb(
-              learning_rate=0.1, random_state=0
-           )
+# Grid search
+grid = GridSearchCV(estimator=RandomSurvivalForest( n_estimators=1000,
+                                                    max_features='sqrt',
+                                                    n_jobs=-1,
+                                                    random_state=1 ),
+                    param_grid=param_grid,
+                    cv=KFold(random_state=seed, shuffle=True),
+                    verbose=10)
+grid_results = grid.fit( Xt, y )
 
-for n_estimators in range(250, 4250, 250):
-    model.set_params(n_estimators=n_estimators)
-    model.fit(X_train, y_train)
-    scores_cph_tree[n_estimators] = model.score(X_test, y_test)
+# Assess results
+means = grid_results.cv_results_['mean_test_score']
+stds = grid_results.cv_results_['std_test_score']
+params = grid_results.cv_results_['params']
+best = grid_results.best_params_
 
-x_plot, y_plot = zip(*scores_cph_tree.items())
-plt.plot(x_plot, y_plot)
-plt.xlabel('n_estimator')
-plt.ylabel('Concordance Index')
-plt.show()
+for mean, stdev, param in zip(means, stds, params):
+    print( '{0} ({1}) with: {2}'.format(round(mean,3), round(stdev,3), param) )
+
+print( 'Best: {0}, using {1}'.format(grid_results.best_score_, best) )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Feature selection
@@ -99,14 +104,17 @@ for train_index, test_index in kf.split(y):
     X_train, X_test = Xt[train_index], Xt[test_index]
     y_train, y_test = y[train_index], y[test_index]
 
-    # This is the gradient boosting model
-    model = cgb(
-                learning_rate=0.1, random_state=1, n_estimators=3500
-               )
-    model.fit(X_train, y_train)
+    # This is the random forest model
+    rsf = RandomSurvivalForest( n_estimators=1000,
+                                min_samples_split=best['min_samples_split'],
+                                min_samples_leaf=best['min_samples_leaf'],
+                                max_features='sqrt',
+                                n_jobs=-1,
+                                random_state=seed+1)
+    rsf.fit(X_train, y_train)
 
     # Use permutation importance to assess features
-    perm = PermutationImportance(model, n_iter=20, random_state=seed+2)
+    perm = PermutationImportance(rsf, n_iter=15, random_state=seed+2)
     perm.fit(X_test, y_test)
 
     # Save results
@@ -140,35 +148,29 @@ plt.xticks( range(len( avg ) ), labels, rotation = 60, ha='right', rotation_mode
 plt.axhline( 0, color='k', linestyle='--', lw=0.8, zorder=0 )
 plt.show()
 
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Remove features that negatively affect the model - skipped for now, no negative features
-#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-remove = [ '' ]
+# Remove features that negatively affect the model
+remove = [ 'mafic', 'shield', 'continental', 'complex', 'summit_crater', 'intraplate', 'ellip', 'volume', 'stratovolcano', 'repose', 'ctcrust1' ]
 df.drop( columns=remove, inplace=True )
-Xt = df.copy()
-Xt.drop( columns=['duration','end'], inplace=True )
-feature_names = Xt.columns.tolist()
-Xt = Xt.values
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Optimization
+#%% Final optimization
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # Initialize random number generator
-seed = 1
+seed = 0
 
 # Make a small grid
-learning_rate = np.logspace(-2,-1,5)
-n_estimators  = np.arange(2000,4500,500)
-dropout_rate = np.array([0,0.1,0.2])
-
-param_grid = dict( learning_rate=learning_rate, n_estimators=n_estimators, dropout_rate=dropout_rate )
+min_samples_split = [5,10,15,20]
+min_samples_leaf = [4,5,6]
+n_estimators = [750,1000,1250]
+param_grid = dict( min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf, n_estimators=n_estimators )
 
 # Grid search
-grid = GridSearchCV(estimator=cgb( random_state=seed ),
+grid = GridSearchCV(estimator=RandomSurvivalForest( max_features='sqrt',
+                                                    n_jobs=-1,
+                                                    random_state=1 ),
                     param_grid=param_grid,
-                    cv=KFold(random_state=seed+1, shuffle=True),
+                    cv=KFold(random_state=seed, shuffle=True),
                     verbose=10)
 grid_results = grid.fit( Xt, y )
 
@@ -178,11 +180,23 @@ stds = grid_results.cv_results_['std_test_score']
 params = grid_results.cv_results_['params']
 best = grid_results.best_params_
 
+for mean, stdev, param in zip(means, stds, params):
+    print( '{0} ({1}) with: {2}'.format(round(mean,3), round(stdev,3), param) )
+
 print( 'Best: {0}, using {1}'.format(grid_results.best_score_, best) )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Cross validation, concordance index and brier score
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+# Prepare data
+d = df.loc[:,['end', 'duration']]
+d.end = d.end == 1
+y = d.to_records(index=False)
+Xt = df.copy()
+Xt.drop( columns=['duration','end'], inplace=True )
+feature_names = Xt.columns.tolist()
+Xt = Xt.values
 
 # Initialize random number generator, once for each repeat of 5-fold cross validation
 random_states = [ 20,21,22,23,24 ]
@@ -190,13 +204,14 @@ random_states = [ 20,21,22,23,24 ]
 # Cross validation
 results_c = [] #concordance index
 results_b = [] #brier score
-
 for seed in random_states:
 
-    model = cgb(
-                    learning_rate=best['learning_rate'], n_estimators=best['n_estimators'],
-                    dropout_rate=best['dropout_rate'], random_state=seed
-               )
+    model = RandomSurvivalForest(n_estimators=best['n_estimators'],
+                                 min_samples_split=best['min_samples_split'],
+                                 min_samples_leaf=best['min_samples_leaf'],
+                                 max_features='sqrt',
+                                 n_jobs=-1,
+                                 random_state=seed+1)
 
     kf = KFold(5, shuffle=True, random_state=seed)
     kf.get_n_splits(y)
@@ -211,7 +226,7 @@ for seed in random_states:
 
         results_c.append(model.score(X_test,y_test))
 
-        #filter test dataset so we only consider event times within the range given by the training datasets for brier score
+        #filter test dataset so we only consider eruption times within the range given by the training datasets for brier score
         mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
         X_test = X_test[mask]
         y_test = y_test[mask]
@@ -220,7 +235,7 @@ for seed in random_states:
         times = np.linspace( np.percentile([time[1] for time in y_test], 25), np.percentile([time[1] for time in y_test], 75), 10 )
         preds = np.asarray( [ [sf(t) for t in times] for sf in survs ] )
         score = integrated_brier_score(y_train, y_test, preds, times)
-        
+
         results_b.append( score )
 
 # Print results
@@ -234,18 +249,19 @@ print( 'Standard deviation: {}'.format( round(np.std(results_b,ddof=1),4) ) )
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # Set up model
-model = cgb(
-                learning_rate=best['learning_rate'], n_estimators=best['n_estimators'],
-                dropout_rate=best['dropout_rate'], random_state=seed
-            )
+rsf = RandomSurvivalForest(n_estimators=1000,
+                            min_samples_split=best['min_samples_split'],
+                            min_samples_leaf=best['min_samples_leaf'],
+                            max_features='sqrt',
+                            n_jobs=-1)
 
 # Train model on entire dataset
-model.fit(Xt, y)
+rsf.fit(Xt, y)
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Calculate shap values
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-explainer = shap.Explainer(model.predict, Xt, feature_names=feature_names)
+explainer = shap.Explainer(rsf.predict, Xt, feature_names=feature_names)
 shaps = explainer(Xt)
 shap.summary_plot(shaps, Xt)

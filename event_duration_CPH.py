@@ -26,6 +26,9 @@ import shap
 df = pd.read_csv( 'input/event_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
+# convert duration from days to seconds
+df.duration *= 24*60*60
+
 # plot correlation matrix
 CM = df.corr()
 mask = np.triu( np.ones_like( CM, dtype=bool ) )
@@ -36,8 +39,8 @@ ax.figure.axes[-1].yaxis.label.set_size(20)
 ax.set_facecolor('w')
 plt.show()
 
-# remove highly correlated (r >= ~0.7) features
-remove = [ 'meanslope', 'rift', 'stratovolcano' ]
+# remove highly correlated (r >= 0.7) features
+remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield', 'complex']
 df.drop( columns=remove, inplace=True )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -52,7 +55,7 @@ cph.fit(df, 'duration',event_col='end')
 cph.print_summary()
 
 # Remove features with high p values (>=0.03)
-remove = [ 'repose', 'caldera', 'dome', 'shield', 'complex', 'compound', 'continental', 'ctcrust1', 'volume', 'eruptionssince1960', 'mafic', 'avgrepose', 'summit_crater' ]
+remove = [ 'stratovolcano', 'dome', 'lava_cone', 'subduction', 'eruptionssince1960', 'avgrepose', 'mafic', 'intermediate', 'felsic', 'summit_crater', 'volume' ]
 df.drop( columns=remove, inplace=True )
 
 # Prepare data for cross validation

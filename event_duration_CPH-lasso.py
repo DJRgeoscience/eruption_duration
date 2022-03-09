@@ -49,6 +49,9 @@ def plot_coefficients(coefs, n_highlight):
 df = pd.read_csv( 'input/event_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
+# convert duration from days to seconds
+df.duration *= 24*60*60
+
 # plot correlation matrix
 CM = df.corr()
 mask = np.triu( np.ones_like( CM, dtype=bool ) )
@@ -64,7 +67,7 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'meanslope', 'rift', 'stratovolcano' ]
+remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
 df.drop( columns=remove, inplace=True )
 
 # Prepare variables

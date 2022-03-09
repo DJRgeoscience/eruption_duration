@@ -49,6 +49,9 @@ def plot_coefficients(coefs, n_highlight):
 df = pd.read_csv( 'input/event_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
+# convert duration from days to seconds
+df.duration *= 24*60*60
+
 # plot correlation matrix
 CM = df.corr()
 mask = np.triu( np.ones_like( CM, dtype=bool ) )
@@ -64,7 +67,7 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'meanslope', 'rift', 'stratovolcano' ]
+remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
 df.drop( columns=remove, inplace=True )
 
 # Prepare variables
@@ -79,7 +82,7 @@ feature_names = Xt.columns.tolist()
 #%% Visualize penalty effect on coefficients
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-alphas = 10. ** np.linspace(-4, 0, 14)
+alphas = 10. ** np.linspace(-5, 0, 10)
 cox_elastic_net = CoxnetSurvivalAnalysis(l1_ratio=0.5, alphas=alphas, normalize=True)
 
 cox_elastic_net.fit(Xt, y)
@@ -166,7 +169,7 @@ for seed in random_states:
         y_test = y_test[mask]
 
         survs = model.predict_survival_function(X_test)
-        times = np.linspace( np.percentile([time[1] for time in y_test], 25), np.percentile([time[1] for time in y_test], 75), 10 )
+        times = times = np.linspace( np.percentile([time[1] for time in y_test], 25), np.percentile([time[1] for time in y_test], 75), 10 )
         preds = np.asarray( [ [sf(t) for t in times] for sf in survs ] )
         score = integrated_brier_score(y_train, y_test, preds, times)
 

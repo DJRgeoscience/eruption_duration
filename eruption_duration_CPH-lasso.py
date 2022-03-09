@@ -1,18 +1,18 @@
 # -*- coding: utf-8 -*-
 
 ##########################################################################################################################
-# Pulse - Cox Proportional Harazards Model with Ridge Penalty
+# Eruption - Cox Proportional Harazards Model with Lasso Penalty
 ##########################################################################################################################
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Import libraries
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-from sksurv.linear_model import CoxPHSurvivalAnalysis as CPHSA
+from sksurv.linear_model import CoxnetSurvivalAnalysis
 from sksurv.metrics import integrated_brier_score
 from sklearn.pipeline import make_pipeline
 from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import KFold, RepeatedKFold, cross_val_score, GridSearchCV
+from sklearn.model_selection import KFold, GridSearchCV, RepeatedKFold, cross_val_score
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -46,11 +46,8 @@ def plot_coefficients(coefs, n_highlight):
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
-df = pd.read_csv( 'input/pulse_durations.csv' )
+df = pd.read_csv( 'input/eruption_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
-
-# convert duration from days to seconds
-df.duration *= 24*60*60
 
 # plot correlation matrix
 CM = df.corr()
@@ -67,7 +64,7 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
+remove = [ 'meanslope', 'rift', 'stratovolcano' ]
 df.drop( columns=remove, inplace=True )
 
 # Prepare variables
@@ -82,33 +79,30 @@ feature_names = Xt.columns.tolist()
 #%% Visualize penalty effect on coefficients
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-alphas = 10. ** np.linspace(-4, 4, 50)
-coefficients = {}
+alphas = 10. ** np.linspace(-5, 0, 10)
+cox_elastic_net = CoxnetSurvivalAnalysis(l1_ratio=1, alphas=alphas, normalize=True)
 
-cph = CPHSA()
-for alpha in alphas:
-    cph.set_params(alpha=alpha)
-    cph.fit(Xt, y)
-    key = round(alpha, 5)
-    coefficients[key] = cph.coef_
+cox_elastic_net.fit(Xt, y)
 
-coefficients = (pd.DataFrame
-    .from_dict(coefficients)
-    .rename_axis(index="feature", columns="alpha")
-    .set_index(Xt.columns))
+coefficients_elastic_net = pd.DataFrame(
+                                        cox_elastic_net.coef_,
+                                        index=Xt.columns,
+                                        columns=np.round(cox_elastic_net.alphas_, 5)
+                                       )
 
-plot_coefficients(coefficients, n_highlight=5)
+plot_coefficients(coefficients_elastic_net, n_highlight=5)
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Optimize model
+#%% Optimization
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 seed = 1
 
-alphas = 10. ** np.linspace(-5, 16, 100)
+estimated_alphas = 10. ** np.linspace(-3, 0, 50)
+
 cv = KFold(n_splits=5, shuffle=True, random_state=seed)
 gcv = GridSearchCV(
-                    make_pipeline(StandardScaler(), CPHSA()),
-                    param_grid={"coxphsurvivalanalysis__alpha": [a for a in alphas]},
+                    make_pipeline(StandardScaler(), CoxnetSurvivalAnalysis(l1_ratio=1)),
+                    param_grid={"coxnetsurvivalanalysis__alphas": [[a] for a in estimated_alphas]},
                     cv=cv,
                     error_score=0.5,
                     n_jobs=-1
@@ -116,8 +110,9 @@ gcv = GridSearchCV(
 
 cv_results = pd.DataFrame(gcv.cv_results_)
 
-mean = cv_results.mean_test_score.values
-std = cv_results.std_test_score.values
+alphas = cv_results.param_coxnetsurvivalanalysis__alphas.map(lambda x: x[0])
+mean = cv_results.mean_test_score
+std = cv_results.std_test_score
 
 fig, ax = plt.subplots(figsize=(9, 6))
 ax.plot(alphas, mean)
@@ -125,7 +120,7 @@ ax.fill_between(alphas, mean - std, mean + std, alpha=.15)
 ax.set_xscale("log")
 ax.set_ylabel("concordance index")
 ax.set_xlabel("alpha")
-ax.axvline(gcv.best_params_["coxphsurvivalanalysis__alpha"], c="C1")
+ax.axvline(gcv.best_params_["coxnetsurvivalanalysis__alphas"][0], c="C1")
 ax.axhline(0.5, color="grey", linestyle="--")
 ax.grid(True)
 
@@ -134,11 +129,11 @@ ax.grid(True)
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # Initialize random number generator
-seed = 10
+seed = 1
 
 kf = RepeatedKFold(n_splits=5, n_repeats=5, random_state=seed)
 
-model = CPHSA(alpha=gcv.best_params_["coxphsurvivalanalysis__alpha"])
+model = CoxnetSurvivalAnalysis(l1_ratio=1,n_alphas=1,alphas=gcv.best_params_["coxnetsurvivalanalysis__alphas"],fit_baseline_model=True)
 results = cross_val_score(model, Xt, y, cv=kf)
 
 # Print results
@@ -151,7 +146,7 @@ print( 'Standard deviation: {}'.format( round(results.std(ddof=1),4) ) )
 
 random_states = [11,12,13,14,15]
 results = []
-model = CPHSA(alpha=gcv.best_params_["coxphsurvivalanalysis__alpha"])
+model = CoxnetSurvivalAnalysis(l1_ratio=1,n_alphas=1,alphas=gcv.best_params_["coxnetsurvivalanalysis__alphas"],fit_baseline_model=True)
 Xt = Xt.values
 
 for seed in random_states:
@@ -165,7 +160,7 @@ for seed in random_states:
 
         model.fit(X_train, y_train)
 
-        #filter test dataset so we only consider event times within the range given by the training datasets
+        #filter test dataset so we only consider eruption times within the range given by the training datasets
         mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
         X_test = X_test[mask]
         y_test = y_test[mask]
@@ -185,7 +180,7 @@ print( 'Standard deviation: {}'.format( round(np.std(results,ddof=1),4) ) )
 #%% Train final model
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-model = CPHSA(alpha=gcv.best_params_["coxphsurvivalanalysis__alpha"])
+model = CoxnetSurvivalAnalysis(l1_ratio=1,n_alphas=1,alphas=gcv.best_params_["coxnetsurvivalanalysis__alphas"],fit_baseline_model=True)
 model.fit(Xt,y)
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -195,3 +190,26 @@ model.fit(Xt,y)
 explainer = shap.Explainer(model.predict, Xt, feature_names=feature_names)
 shaps = explainer(Xt)
 shap.summary_plot(shaps, Xt)
+
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+#%% Alternative method for evaluating features
+#/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+best_model = gcv.best_estimator_.named_steps["coxnetsurvivalanalysis"]
+
+best_coefs = pd.DataFrame(
+                            best_model.coef_,
+                            index=feature_names,
+                            columns=["coefficient"]
+                         )
+
+non_zero = np.sum(best_coefs.iloc[:, 0] != 0)
+print("Number of non-zero coefficients: {}".format(non_zero))
+
+non_zero_coefs = best_coefs.query("coefficient != 0")
+coef_order = non_zero_coefs.abs().sort_values("coefficient").index
+
+_, ax = plt.subplots(figsize=(6, 8))
+non_zero_coefs.loc[coef_order].plot.barh(ax=ax, legend=False)
+ax.set_xlabel("coefficient")
+ax.grid(True)

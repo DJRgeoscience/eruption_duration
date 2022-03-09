@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ##########################################################################################################################
-# Pulse - Survival analysis with neural networks and Cox regression (Cox-Time)
+# Eruption - Survival analysis with neural networks and Cox regression (Cox-Time)
 ##########################################################################################################################
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -26,11 +26,8 @@ import seaborn as sns
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
-df = pd.read_csv( 'input/pulse_durations.csv' )
+df = pd.read_csv( 'input/eruption_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
-
-# convert duration from days to seconds
-df.duration *= 24*60*60
 
 # plot correlation matrix
 CM = df.corr()
@@ -47,7 +44,7 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
+remove = [ 'meanslope', 'rift', 'stratovolcano' ]
 df.drop( columns=remove, inplace=True )
 
 # Set random seeds
@@ -62,8 +59,10 @@ df_val = df_train.sample(frac=0.2)
 df_train = df_train.drop(df_val.index)
 
 # Standardize
-cols_standardize = [ 'elevation', 'volume', 'eruptionssince1960', 'avgrepose', 'h_bw', 'ellip' ]
-cols_leave = ['explosive', 'continuous', 'stratovolcano', 'dome','complex','lava_cone','subduction', 'continental', 'mafic', 'intermediate', 'felsic', 'summit_crater' ]
+cols_standardize = [ 'vei', 'repose', 'ctcrust1', 'elevation', 'volume', 'eruptionssince1960', 'avgrepose',
+                   'h_bw', 'ellip']
+cols_leave = [ 'caldera', 'dome', 'shield', 'complex', 'lava_cone', 'compound', 'subduction', 'intraplate',
+             'continental', 'mafic', 'intermediate', 'felsic', 'summit_crater']
 
 standardize = [([col], StandardScaler()) for col in cols_standardize]
 leave = [(col, None) for col in cols_leave]
@@ -72,12 +71,14 @@ x_mapper = DataFrameMapper(standardize + leave)
 x_train = x_mapper.fit_transform(df_train).astype('float32')
 x_val = x_mapper.transform(df_val).astype('float32')
 x_test = x_mapper.transform(df_test).astype('float32')
+
 labtrans = CoxTime.label_transform()
 get_target = lambda df: (df['duration'].values, df['end'].values)
 y_train = labtrans.fit_transform(*get_target(df_train))
 y_val = labtrans.transform(*get_target(df_val))
-durations_test, events_test = get_target(df_test)
+durations_test, eruptions_test = get_target(df_test)
 val = tt.tuplefy(x_val, y_val)
+
 val.shapes()
 val.repeat(2).cat().shapes()
 
@@ -122,7 +123,7 @@ _ = plt.xlabel('Time')
 plt.xscale('log')
 plt.show()
 
-ev = EvalSurv(surv, durations_test, events_test, censor_surv='km')
+ev = EvalSurv(surv, durations_test, eruptions_test, censor_surv='km')
 print( ev.concordance_td() )
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -173,7 +174,7 @@ for bs in batch_size:
                     get_target = lambda df: (df['duration'].values, df['end'].values)
                     y_train = labtrans.fit_transform(*get_target(df_train))
                     y_val = labtrans.transform(*get_target(df_val))
-                    durations_test, events_test = get_target(df_test)
+                    durations_test, eruptions_test = get_target(df_test)
                     val = tt.tuplefy(x_val, y_val)
 
                     val.shapes()
@@ -200,7 +201,7 @@ for bs in batch_size:
                     _ = model.compute_baseline_hazards()
                     surv = model.predict_surv_df(x_test)
 
-                    ev = EvalSurv(surv, durations_test, events_test, censor_surv='km')
+                    ev = EvalSurv(surv, durations_test, eruptions_test, censor_surv='km')
                     scores.append( ev.concordance_td() )
 
                 if np.mean(scores) > score:
@@ -242,7 +243,7 @@ for random_state in range(5):
         get_target = lambda df: (df['duration'].values, df['end'].values)
         y_train = labtrans.fit_transform(*get_target(df_train))
         y_val = labtrans.transform(*get_target(df_val))
-        durations_test, events_test = get_target(df_test)
+        durations_test, eruptions_test = get_target(df_test)
         val = tt.tuplefy(x_val, y_val)
 
         val.shapes()
@@ -269,7 +270,7 @@ for random_state in range(5):
         _ = model.compute_baseline_hazards()
         surv = model.predict_surv_df(x_test)
 
-        ev = EvalSurv(surv, durations_test, events_test, censor_surv='km')
+        ev = EvalSurv(surv, durations_test, eruptions_test, censor_surv='km')
         results_ci.append( ev.concordance_td() )
 
         times = np.linspace(np.percentile(df_train.duration,25), np.percentile(df_train.duration,75), 10)

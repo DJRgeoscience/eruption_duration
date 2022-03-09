@@ -19,12 +19,15 @@ import seaborn as sns
 import shap
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#%% Remove correlated features
+#%% Remove correlated features and prepare data
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
 df = pd.read_csv( 'input/event_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
+
+# convert duration from days to seconds
+df.duration *= 24*60*60
 
 # plot correlation matrix
 CM = df.corr()
@@ -37,7 +40,7 @@ ax.set_facecolor('w')
 plt.show()
 
 # remove highly correlated (r >= 0.7) features
-remove = [ 'meanslope' ]
+remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
 df.drop( columns=remove, inplace=True )
 
 # Prepare data
@@ -149,8 +152,9 @@ plt.axhline( 0, color='k', linestyle='--', lw=0.8, zorder=0 )
 plt.show()
 
 # Remove features that negatively affect the model
-remove = [ 'mafic', 'shield', 'continental', 'complex', 'summit_crater', 'intraplate', 'ellip', 'volume', 'stratovolcano', 'repose', 'ctcrust1' ]
+remove = [ 'complex', 'felsic', 'eruptionssince1960', 'stratovolcano', 'volume' ]
 df.drop( columns=remove, inplace=True )
+
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Final optimization
@@ -159,7 +163,7 @@ df.drop( columns=remove, inplace=True )
 # Initialize random number generator
 seed = 0
 
-# Make a small grid
+# Make a grid
 min_samples_split = [5,10,15,20]
 min_samples_leaf = [4,5,6]
 n_estimators = [750,1000,1250]
@@ -254,7 +258,6 @@ rsf = RandomSurvivalForest(n_estimators=1000,
                             min_samples_leaf=best['min_samples_leaf'],
                             max_features='sqrt',
                             n_jobs=-1)
-
 # Train model on entire dataset
 rsf.fit(Xt, y)
 

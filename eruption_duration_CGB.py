@@ -1,14 +1,14 @@
 # -*- coding: utf-8 -*-
 
 ##########################################################################################################################
-# Pulse - Gradient boosted models using Cox's partial likelihood
+# Eruption - Componentwise gradient boosted models using Cox's partial likelihood
 ##########################################################################################################################
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Import libraries
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-from sksurv.ensemble import GradientBoostingSurvivalAnalysis
+from sksurv.ensemble import ComponentwiseGradientBoostingSurvivalAnalysis as cgb
 from sksurv.metrics import integrated_brier_score
 from sklearn.model_selection import train_test_split, KFold, GridSearchCV
 from eli5.sklearn import PermutationImportance
@@ -23,7 +23,7 @@ import shap
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
-df = pd.read_csv( 'input/pulse_durations.csv' )
+df = pd.read_csv( 'input/eruption_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
 # plot correlation matrix
@@ -41,11 +41,8 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
+remove = [ 'meanslope', 'rift', 'stratovolcano' ]
 df.drop( columns=remove, inplace=True )
-
-# convert duration from days to seconds
-df.duration *= 24*60*60
 
 # Prepare variables
 d = df.loc[:,['end', 'duration']]
@@ -59,17 +56,17 @@ Xt = Xt.values
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Visualize n_estimators
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-seed = 1
+seed = 5
 
 X_train, X_test, y_train, y_test = train_test_split(Xt, y, test_size=0.2, random_state=seed)
 
 scores_cph_tree = {}
 
-model = GradientBoostingSurvivalAnalysis(
-                                            learning_rate=0.1, max_depth=1, random_state=0
-                                        )
+model = cgb(
+              learning_rate=0.1, random_state=0
+           )
 
-for n_estimators in range(10, 1010, 10):
+for n_estimators in range(100, 1100, 100):
     model.set_params(n_estimators=n_estimators)
     model.fit(X_train, y_train)
     scores_cph_tree[n_estimators] = model.score(X_test, y_test)
@@ -103,9 +100,9 @@ for train_index, test_index in kf.split(y):
     y_train, y_test = y[train_index], y[test_index]
 
     # This is the gradient boosting model
-    model = GradientBoostingSurvivalAnalysis(
-                                                learning_rate=0.1, max_depth=1, random_state=1, n_estimators=800
-                                            )
+    model = cgb(
+                learning_rate=0.1, random_state=1, n_estimators=1000
+               )
     model.fit(X_train, y_train)
 
     # Use permutation importance to assess features
@@ -147,7 +144,7 @@ plt.show()
 #%% Remove features that negatively affect the model
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-remove = [ 'complex', 'mafic', 'eruptionssince1960', 'volume' ]
+remove = [ 'eruptionssince1960' ]
 df.drop( columns=remove, inplace=True )
 Xt = df.copy()
 Xt.drop( columns=['duration','end'], inplace=True )
@@ -162,17 +159,14 @@ Xt = Xt.values
 seed = 1
 
 # Make a small grid
-learning_rate = np.logspace(-2,-1,5)
-n_estimators  = np.arange(200,1400,300)
-max_depth  = np.arange(1,3)
-min_samples_split = np.arange(2,4)
-min_samples_leaf  = np.arange(1,4)
+learning_rate = np.logspace(-2,0,10)
+n_estimators  = np.arange(100,900,200)
 dropout_rate = np.array([0,0.1,0.2])
 
-param_grid = dict( learning_rate=learning_rate, n_estimators=n_estimators, max_depth=max_depth, min_samples_split=min_samples_split, min_samples_leaf=min_samples_leaf, dropout_rate=dropout_rate )
+param_grid = dict( learning_rate=learning_rate, n_estimators=n_estimators, dropout_rate=dropout_rate )
 
 # Grid search
-grid = GridSearchCV(estimator=GradientBoostingSurvivalAnalysis( random_state=seed ),
+grid = GridSearchCV(estimator=cgb( random_state=seed ),
                     param_grid=param_grid,
                     cv=KFold(random_state=seed+1, shuffle=True),
                     verbose=10)
@@ -198,32 +192,30 @@ results_c = [] #concordance index
 results_b = [] #brier score
 
 for seed in random_states:
-    
-    model = GradientBoostingSurvivalAnalysis(
-                                                learning_rate=best['learning_rate'], max_depth=best['max_depth'],
-                                                n_estimators=best['n_estimators'], min_samples_split=best['min_samples_split'],
-                                                min_samples_leaf=best['min_samples_leaf'], dropout_rate=best['dropout_rate'],
-                                                random_state=seed
-                                            )
-    
+
+    model = cgb(
+                    learning_rate=best['learning_rate'], n_estimators=best['n_estimators'],
+                    dropout_rate=best['dropout_rate'], random_state=seed
+               )
+
     kf = KFold(5, shuffle=True, random_state=seed)
     kf.get_n_splits(y)
-    
+
     for train_index, test_index in kf.split(y):
         print( '{0} of {1}'.format(len(results_c)+1, 5*len(random_states)) )
-        
+
         X_train, X_test = Xt[train_index], Xt[test_index]
         y_train, y_test = y[train_index], y[test_index]
-    
+
         model.fit(X_train, y_train)
-        
+
         results_c.append(model.score(X_test,y_test))
-        
-        #filter test dataset so we only consider event times within the range given by the training datasets for brier score
+
+        #filter test dataset so we only consider eruption times within the range given by the training datasets for brier score
         mask = (y_test.field(1) >= min(y_train.field(1))) & (y_test.field(1) <= max(y_train.field(1)))
         X_test = X_test[mask]
         y_test = y_test[mask]
-        
+
         survs = model.predict_survival_function(X_test)
         times = np.linspace( np.percentile([time[1] for time in y_test], 25), np.percentile([time[1] for time in y_test], 75), 10 )
         preds = np.asarray( [ [sf(t) for t in times] for sf in survs ] )
@@ -240,15 +232,13 @@ print( 'Standard deviation: {}'.format( round(np.std(results_b,ddof=1),4) ) )
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Train final model
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-seed = 111
 
 # Set up model
-model = GradientBoostingSurvivalAnalysis(
-                                            learning_rate=best['learning_rate'], max_depth=best['max_depth'],
-                                            n_estimators=best['n_estimators'], min_samples_split=best['min_samples_split'],
-                                            min_samples_leaf=best['min_samples_leaf'], dropout_rate=best['dropout_rate'],
-                                            random_state=seed
-                                        )
+model = cgb(
+                learning_rate=best['learning_rate'], n_estimators=best['n_estimators'],
+                dropout_rate=best['dropout_rate'], random_state=seed
+            )
+
 # Train model on entire dataset
 model.fit(Xt, y)
 

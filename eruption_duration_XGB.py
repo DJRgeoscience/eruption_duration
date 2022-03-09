@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 ##########################################################################################################################
-# Pulse - XGBoost model using accelerated failure time
+# Eruption - XGBoost model using accelerated failure time
 ##########################################################################################################################
 
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -24,7 +24,7 @@ import shap
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # import data, remove empty features
-df = pd.read_csv( 'input/pulse_durations.csv' )
+df = pd.read_csv( 'input/eruption_durations.csv' )
 df = df.loc[:, (df != 0).any(axis=0)]
 
 # plot correlation matrix
@@ -42,7 +42,7 @@ plt.show()
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 # remove highly correlated (r >= ~0.7) features
-remove = [ 'rift', 'intraplate', 'ctcrust1', 'meanslope', 'shield']
+remove = [ 'meanslope', 'rift', 'stratovolcano' ]
 df.drop( columns=remove, inplace=True )
 
 # Prepare variables
@@ -52,7 +52,6 @@ y = convert_to_structured(df['duration'], df['end'])
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 #%% Visualize model parameters
 #/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
 seed = 0
 
 # make train/test datasets
